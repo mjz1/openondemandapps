@@ -3,7 +3,15 @@
 # Load the required environment
 setup_env () {
   module purge
-  module load singularity/3.6.2
+  module load singularity/3.7.1
+  # module load R/R-4.1.2
+
+  # Container variables
+  # export SINGULARITYENV_LD_LIBRARY_PATH="$LD_LIBRARY_PATH"
+  # export SINGULARITY_BINDPATH="/etc,/media,/mnt,/opt,/srv,/usr,/var"
+  # export PATH="$PATH:/usr/lib/rstudio-server/bin"
+  # export SINGULARITYENV_PATH="$PATH"
+  # export SINGULARITYENV_APPEND_PATH="$PATH"  # Test add our entire path into the container
 }
 setup_env
 
@@ -11,7 +19,25 @@ setup_env
 # Start RStudio Server
 #
 
-export R_LIBS_USER="/packages"
+
+# Set up conda environment
+# COND_ENV="<%= context.conda_env %>"
+
+# echo "Sourcing conda and loading environment: ${COND_ENV}"
+# source "$HOME/miniconda3/etc/profile.d/conda.sh"
+# conda activate $COND_ENV
+
+# if [ -z "$CONDA_PREFIX" ]; then
+#   echo "Activate a conda env or specify \$CONDA_PREFIX"
+#   exit 1
+# fi
+
+    
+
+export R_LIBS_USER="<%= context.r_user_lib %>"
+
+# Locate init script
+export INIT_SCRIPT="${PWD}/bin/init.sh"
 
 # PAM auth helper used by RStudio
 export RSTUDIO_AUTH="${PWD}/bin/auth"
@@ -49,7 +75,7 @@ export TMPDIR=`mktemp -d`
 mkdir -p $TMPDIR/{run,var-lib-rstudio-server,local-share-rstudio}
 
 ## fix rstudio active session error on start
-find ~/.rstudio/sessions/active/*/session-persistent-state -type f | xargs sed -i '' -e 's/abend="1"/abend="0"/'
+# find ~/.rstudio/sessions/active/*/session-persistent-state -type f | xargs sed -i '' -e 's/abend="1"/abend="0"/'
 
 set -x
 # Launch the RStudio Server
@@ -57,23 +83,30 @@ echo "Starting up rserver..."
 
 export RSTUDIO_USER="${USER}"
 
-echo $USER
-echo $PASSWORD
-echo $RSTUDIO_USER
-echo $RSTUDIO_PASSWORD
+# echo $USER
+# echo $PASSWORD
+# echo $RSTUDIO_USER
+# echo $RSTUDIO_PASSWORD
 
-singularity exec -B "$TMPDIR:/tmp" -B "$TMPDIR/run:/run" \
- -B "$TMPDIR/var-lib-rstudio-server:/var/lib/rstudio-server" \
- -B "$TMPDIR/local-share-rstudio:/home/rstudio/.local/share/rstudio" \
- -B "/juno/work:/work" -B "/juno/res:/res" \
- -B <%= context.r_packages %>:/packages \
- "<%= context.rstudio_image %>" rserver \
- --server-user="${RSTUDIO_USER}" \
- --www-port="${port}" \
- --auth-none=0 \
- --auth-pam-helper-path="${RSTUDIO_AUTH}" \
- --auth-encrypt-password=0 \
- --rsession-path="${RSESSION_WRAPPER_FILE}" \
+# echo $PATH
+
+# PY_BIN=$CONDA_PREFIX/bin/python
+
+singularity exec \
+  -B "$TMPDIR:/tmp" \
+  -B "$TMPDIR/run:/run" \
+  -B "$TMPDIR/var-lib-rstudio-server:/var/lib/rstudio-server" \
+  -B "$TMPDIR/local-share-rstudio:/home/rstudio/.local/share/rstudio" \
+  -B "/juno:/juno" \
+  "<%= context.rstudio_image %>" /bin/bash "${INIT_SCRIPT}"
+
+
+
+  # -B "$TMPDIR/run:/run" \
+  # -B "$TMPDIR/var-lib-rstudio-server:/var/lib/rstudio-server" \
+  # -B "$TMPDIR/local-share-rstudio:/home/rstudio/.local/share/rstudio" \
+  #  -B "/juno/work:/work" -B "/juno/res:/res" \
+  # -B $HOME/:/
 
 # note, rserver in the container will start with the user space environment defined on host
 # BUT, the rsession starts on limited environment, only related to R = no SLURM*, http*, ...
