@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+
+# Deactivate conda?
+# conda deactivate
+
+# Load the required environment
+# module load R/R-3.6.3_shlib
+module load gcc/11.2.0
+# module unload gcc
+
+export PATH="/usr/lib/rstudio-server/bin/":$PATH
+
+# export PATH=$PATH:"/home/zatzmanm/centos/usr/lib/rstudio-server/bin"
+export R_LIBS_USER="<%= context.r_user_lib %>"
+
+# Locate init script
+#export INIT_SCRIPT="${PWD}/bin/init.sh"
+
+# PAM auth helper used by RStudio
+export RSTUDIO_AUTH="${PWD}/bin/auth"
+
+# Generate an `rsession` wrapper script
+export RSESSION_WRAPPER_FILE="${PWD}/rsession.sh"
+(
+umask 077
+sed 's/^ \{2\}//' > "${RSESSION_WRAPPER_FILE}" << EOL
+  #!/usr/bin/env bash
+
+  # Log all output from this script
+  export RSESSION_LOG_FILE="${PWD}/rsession.log"
+
+  exec &>>"\${RSESSION_LOG_FILE}"
+
+  # Launch the original command
+  echo "Launching rsession..."
+  set -x
+  exec rsession --r-libs-user "${R_LIBS_USER}" "\${@}"
+EOL
+)
+chmod 700 "${RSESSION_WRAPPER_FILE}"
+
+# Set working directory to home directory
+cd "${HOME}"
+
+set -x
+# Launch the RStudio Server
+echo "Starting up rserver..."
+
+export RSTUDIO_USER="${USER}"
+
+mkdir -p "${__LSF_JOB_TMPDIR__}/run"
+mkdir -p "${__LSF_JOB_TMPDIR__}/lib"
+mkdir -p /tmp/lib/rstudio-server
+
+/usr/lib/rstudio-server/bin/rserver \
+    --server-user="${RSTUDIO_USER}" \
+    --www-port="${port}" \
+    --auth-none=0 \
+    --auth-pam-helper-path="${RSTUDIO_AUTH}" \
+    --auth-encrypt-password=0 \
+    --rsession-path="${RSESSION_WRAPPER_FILE}" \
+    --server-data-dir="${__LSF_JOB_TMPDIR__}/run" \
+    --database-config-file="/home/zatzmanm/ondemand/dev/rserver_local/template/etc/database.conf"
+
+# note, rserver in the container will start with the user space environment defined on host
+# BUT, the rsession starts on limited environment, only related to R = no SLURM*, http*, ...
+# so anything we want to pass to rsession needs to be set in $RSESSION_WRAPPER_FILE
