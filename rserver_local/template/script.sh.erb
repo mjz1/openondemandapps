@@ -11,7 +11,8 @@ module load gcc/11.2.0
 export PATH="/usr/lib/rstudio-server/bin/":$PATH
 
 # export PATH=$PATH:"/home/zatzmanm/centos/usr/lib/rstudio-server/bin"
-export R_LIBS_USER="<%= context.r_user_lib %>"
+# export R_LIBS_USER="<%= context.r_user_lib %>"
+export R_LIBS_USER=$HOME/work/R/x86_64-pc-linux-gnu-library/4.1
 
 # Locate init script
 #export INIT_SCRIPT="${PWD}/bin/init.sh"
@@ -35,6 +36,7 @@ sed 's/^ \{2\}//' > "${RSESSION_WRAPPER_FILE}" << EOL
   echo "Launching rsession..."
   set -x
   exec rsession --r-libs-user "${R_LIBS_USER}" "\${@}"
+  # exec rsession "\${@}"
 EOL
 )
 chmod 700 "${RSESSION_WRAPPER_FILE}"
@@ -47,6 +49,8 @@ set -x
 echo "Starting up rserver..."
 
 export RSTUDIO_USER="${USER}"
+
+echo $R_LIBS_USER
 
 mkdir -p "${__LSF_JOB_TMPDIR__}/run"
 mkdir -p "${__LSF_JOB_TMPDIR__}/lib"

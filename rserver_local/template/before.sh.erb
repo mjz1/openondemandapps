@@ -7,8 +7,8 @@ port=$(find_port ${host})
 # Define a password and export it for RStudio authentication
 ## HACK: specifying the password, possibly not necessary but was
 ## having issues logging back into rstudio server after being afk
-password="$(create_passwd 16)"
-password=mysecretrstudiopassword
+# password="$(create_passwd 16)"
+password="password"
 export RSTUDIO_PASSWORD="${password}"
 
 <%-

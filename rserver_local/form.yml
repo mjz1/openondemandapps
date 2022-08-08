@@ -56,8 +56,8 @@ attributes:
   #   value: 'base'
   r_user_lib:
     label: R User Library Packages
-    help: Enter a path to user library packages
-    value: '/home/zatzmanm/R/ood/4.1'
+    help: Enter a path to user library packages please
+    value: '~'
 
 # All of the attributes that make up the Dashboard form (in respective order),
 # and made available to the submit configuration file and the template ERB
