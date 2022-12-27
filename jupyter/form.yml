@@ -44,7 +44,7 @@ attributes:
   memory:
     value: 8
     step: 4
-    help: "Requested memory"
+    help: "Requested memory per core"
   num_mins:
     value: 60
     min: 5

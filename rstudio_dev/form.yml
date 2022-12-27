@@ -37,31 +37,29 @@ attributes:
   num_cores:
     widget: "number_field"
     label: "Number of cores"
-    value: 2
-    help: "Maximum number of CPU cores is 72"
-    min: 2
-    step: 1
-  memory:
     value: 8
-    step: 4
-    help: "Requested memory per core"
+    help: "Maximum number of CPU cores is 72"
+    min: 1
+    step: 1
   num_mins:
-    value: 60
+    value: 1000
     min: 5
     step: 1
     help: "Maximum wall time is 1 week"
+  memory:
+    widget: "number_field"
+    label: "Memory"
+    value: 8
+    min: 8
+    step: 1
   rstudio_image:
     label: RStudio Singularity Image
     help: Enter a path to a RStudio Server Image
-    value: '/home/zatzmanm/work/images/rstudio/rstudio_4.1.2.simg'
-  conda_env:
-    label: Conda environment
-    help: Optional name of conda environment to use
-    value: 'base'
-  r_user_lib:
-    label: R User Library Packages
-    help: Enter a path to user library packages
-    value: '/home/zatzmanm/R/ood/4.1'
+    value: '/home/zatzmanm/work/images/rstudio/rstudio-latest.sif'
+  r_packages:
+    label: R packages
+    help: Enter a path to installed R packages
+    value: '/juno/work/shah/users/zatzmanm/R/x86_64-pc-linux-gnu-library/4.2'
 
 # All of the attributes that make up the Dashboard form (in respective order),
 # and made available to the submit configuration file and the template ERB
@@ -80,5 +78,4 @@ form:
   - num_mins
   - memory
   - rstudio_image
-  - r_user_lib
-  - conda_env
+  - r_packages

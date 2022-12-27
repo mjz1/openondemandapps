@@ -17,6 +17,5 @@ script:
      - "<%= num_cores %>"
      - "-W"
      - "<%= num_mins %>"
-     - "-R"
-     - "rusage[mem=<%= memory %>]select[type==CentOS7]"
-
+     - "-M"
+     - "<%= memory %>"
