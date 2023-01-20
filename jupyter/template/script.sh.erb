@@ -22,6 +22,8 @@ module load <%= context.modules %>
 module list
 <%- end -%>
 
+. "/home/zatzmanm/work/miniconda3/etc/profile.d/conda.sh"
+
 # Benchmark info
 echo "TIMING - Starting jupyter at: $(date)"
 
