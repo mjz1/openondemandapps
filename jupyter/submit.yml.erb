@@ -27,10 +27,11 @@ batch_connect:
 script:
   queue_name: "<%= queue %>"
   native: # ... array of command line arguments ...
-     - "-n"
+     - "--nodes"
+     - "1"
+     - "--ntasks"
      - "<%= num_cores %>"
-     - "-W"
+     - "--mem"
+     - "<%= memory %>G"
+     - "--time"
      - "<%= num_mins %>"
-     - "-R"
-     - "rusage[mem=<%= memory %>]select[type==CentOS7]"
-
