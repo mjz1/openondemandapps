@@ -33,7 +33,7 @@ attributes:
 
   queue:
     label: "Queue"
-    value: "componc"
+    value: "componc_cpu"
   num_cores:
     widget: "number_field"
     label: "Number of cores"
@@ -50,13 +50,18 @@ attributes:
     min: 5
     step: 1
     help: "Maximum wall time is 1 week"
+  num_gpus:
+    value: 0
+    min: 0
+    step: 1
+    help: "Set to 0 if no gpu needed"
   jupyter_binary:
     label: Jupyter Binary
     help: Enter a path to the jupyter binary
     value: 'jupyter-lab'
   conda_env:
     label: Conda Environment Name
-    help: Enter the name of the conda environment to use
+    help: Enter the name of the conda environment to use to launch jupyter
     value: 'jupyterlab'
   notebook_directory:
     label: Notebooks directory
@@ -79,6 +84,7 @@ form:
   - queue
   - num_cores
   - num_mins
+  - num_gpus
   - memory
   - jupyter_binary
   - conda_env
