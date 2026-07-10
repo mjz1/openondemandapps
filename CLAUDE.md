@@ -1,0 +1,97 @@
+# CLAUDE.md
+
+Open OnDemand app definitions, deployed by living in `~/ondemand/dev/` — the
+OnDemand **sandbox app** directory. Editing a file here changes the running app.
+There is no build or deploy step, and no staging environment.
+
+The substantial app is `rstudio_dev/`; see its [README](rstudio_dev/README.md)
+for architecture, and `sync-images.sh --help` for image management.
+
+## Ground truth about this environment
+
+- **The portal is not this machine.** Open OnDemand renders the ERB templates
+  inside the PUN, on the web node. `ruby` is not installed anywhere on the
+  cluster, so `form.yml.erb` and `template/script.sh.erb` **cannot be tested
+  locally**. They are only exercised by launching a session. Treat any change to
+  them as unverified until someone clicks Launch.
+- The PUN does not reliably source your shell rc, so **environment variables do
+  not reach the ERB templates**. Configuration lives in
+  `~/.config/rstudio_dev/config`, written by `install.sh` and read by all four
+  consumers (`form.yml.erb`, `script.sh.erb`, `sync-images.sh`, `r-wrappers.sh`).
+  Environment still wins when set, for one-off overrides.
+- **No cron.** `scrontab` is disabled cluster-wide and login-node `crontab` is
+  blocked by PAM. Anything recurring must be run by hand or by a
+  self-resubmitting Slurm job.
+- Login nodes must not run compute. `sync-images.sh` splits this deliberately:
+  the digest check is three HTTP HEAD requests and runs anywhere; the ~4 GB pull
+  plus squashfs conversion is submitted with `sbatch`. If `$SLURM_JOB_ID` is
+  already set it runs inline instead.
+
+## Singularity gotchas that have bitten us
+
+- **The host environment leaks into the container.** This host exports
+  `SSL_CERT_FILE=/etc/pki/…` and `SSL_CERT_DIR=/etc/pki/…` (RHEL paths) which do
+  not exist inside the Ubuntu image, breaking OpenSSL TLS. Quarto reports
+  `Failed to load platform certificates`, which points nowhere near the cause.
+  Both `script.sh.erb` and `r-wrappers.sh` remap these to the container's own CA
+  bundle. Do **not** reach for `--cleanenv` — it also strips `SLURM_*` and
+  `R_LIBS_USER`.
+- The SIF is **read-only at runtime**, whatever the file permissions say.
+  Anything the container needs to write must be bind-mounted from `$HOME` or
+  `$TMPDIR`.
+- `rserver` inside the image logs to syslog by default (rocker's setting), and
+  there is no syslog socket in a container — so startup failures produce **no
+  output at all**, and the only symptom is `wait_until_port_used` timing out.
+  `script.sh.erb` binds a `logging.conf` with `logger-type=stderr` so errors
+  reach the job's `output.log`. Keep it.
+- `--nv` is required for GPU device/driver bind-mounts. Without it a probe for
+  `nvidia-smi` sees nothing even on a GPU node.
+
+## Images vs libraries
+
+**Images are a shared artifact. R package libraries are per-user.**
+
+Packages are compiled against a specific R *minor* version and installed into a
+directory you own, so `4.5_singularity` and `4.6_singularity` are not
+interchangeable. Consequently:
+
+- `script.sh.erb` **derives** `R_LIBS_USER` from the selected image rather than
+  offering it as a separate form field. There used to be two independent selects,
+  and the R 4.4 option pointed at a library directory that did not exist.
+- **R ignores a missing `R_LIBS_USER` silently.** A wrong path is not an error,
+  it is an invisible loss of every package you installed. Never fall back to
+  another version's library; fail loudly instead.
+- `form.yml.erb` offers only versions whose library directory exists, and
+  `r-wrappers.sh` defaults to the newest R with a *populated* library — not to
+  `latest`, which tracks the newest image and could silently move you onto an R
+  version whose library you have not built yet.
+
+## Images are rolling
+
+`sync-images.sh` records the registry manifest digest of each `.sif` in a
+`.digest` sidecar, so staleness is detected with HTTP HEAD requests rather than a
+4 GB download. The upstream repo (`mjz1/rstudio-img`) rebuilds its rolling
+`4.3`–`4.6` tags monthly, so **an image can change under a stable filename**.
+
+- The previous build is retained as `rstudio-<ver>.sif.prev` (a hardlink, so it
+  costs nothing until the new image lands). Rollback is a rename.
+- `images.json` records digest, R/RStudio/Quarto versions and pull time for every
+  image, so you can reconstruct what an analysis ran under.
+- What actually moves between rebuilds is *not* mostly R. One rebuild took
+  RStudio Server from 2025.09 to 2026.06 in a single step. R's patch version is
+  the least significant thing in the image.
+
+## Known sharp edges
+
+- `template/before.sh.erb` generates a random RStudio password with
+  `create_passwd 16` and then overwrites it with the literal string `password`.
+  Annotated as a HACK for losing sessions when idle — which is more plausibly the
+  `--auth-timeout-minutes` value, since raised to 6000. Left alone because
+  changing it alters the login flow.
+- `script.sh.erb` passes `--database-config-file` to work around an image bug
+  fixed upstream in `rstudio-img` v1.1.1. It is now redundant for current images
+  but still protects older ones. If you want to confirm the upstream fix stands
+  on its own, drop the flag for one launch — otherwise a regression could hide
+  behind the workaround indefinitely.
+- `~/.alias` is tracked in a separate bare dotfiles repo (`$HOME/.cfg`), not this
+  one. It sources `rstudio_dev/r-wrappers.sh`.
