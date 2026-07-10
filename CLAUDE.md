@@ -82,13 +82,22 @@ already per-job. Concurrent sessions collided only on **shared `$HOME` RStudio
 state**: `~/.local/share/rstudio` (`XDG_DATA_HOME/rstudio` — session/workspace
 state), the cache, and an abend-reset loop that rewrote *every* active session's
 `session-persistent-state`. Fixed with **named slots**: `session_name` /
-`new_session_name` form fields → a sanitised slot → per-slot `XDG_DATA_HOME` and
-`XDG_CACHE_HOME` under `~/.rstudio-sessions/<slot>/`. `XDG_CONFIG_HOME` is left at
-`~/.config` so preferences stay shared. This works with open-source RStudio
-Server (no Workbench needed) precisely because the sessions are separate
-`rserver` processes — only the filesystem state had to be split. The slot name is
-one path segment, sanitised (`[^A-Za-z0-9._-]`→`_`, leading dots stripped) so it
-cannot escape `~/.rstudio-sessions`.
+`new_session_name` form fields → a sanitised slot → **per-slot `XDG_DATA_HOME`
+only** under `~/work/.rstudio-sessions/<slot>/data`. Slots live under `~/work`
+(→ `/data1`), NOT `$HOME` (which is small).
+
+**`XDG_CACHE_HOME` must stay shared** — this was a bug fix. renv keeps its
+library and cache under `R_user_dir("renv","cache")` == `$XDG_CACHE_HOME/R/renv`,
+so a per-slot cache pointed `.libPaths()` at an empty per-slot renv root and
+every installed package vanished. `XDG_CONFIG_HOME` is likewise shared
+(`~/.config`) so preferences persist. Only RStudio's session state (under
+`XDG_DATA_HOME/rstudio`) needed isolating. Side effect: packages that store data
+under `XDG_DATA_HOME` (e.g. `SeuratData`) become per-slot.
+
+Works with open-source RStudio Server (no Workbench) because the sessions are
+separate `rserver` processes — only the filesystem state had to be split. The
+slot is one sanitised path segment (`[^A-Za-z0-9._-]`→`_`, leading dots stripped)
+so it cannot escape `~/work/.rstudio-sessions`.
 
 ## Images vs libraries
 
