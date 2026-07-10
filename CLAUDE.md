@@ -44,8 +44,36 @@ for architecture, and `sync-images.sh --help` for image management.
   output at all**, and the only symptom is `wait_until_port_used` timing out.
   `script.sh.erb` binds a `logging.conf` with `logger-type=stderr` so errors
   reach the job's `output.log`. Keep it.
-- `--nv` is required for GPU device/driver bind-mounts. Without it a probe for
-  `nvidia-smi` sees nothing even on a GPU node.
+- **GPU passthrough is `--nv`, gated on Slurm's GPU-allocation signal — not a
+  device probe.** `script.sh.erb` and `r-wrappers.sh` add `--nv` to `singularity
+  exec` only when `CUDA_VISIBLE_DEVICES` / `SLURM_JOB_GPUS` is set (Slurm's gres
+  plugin sets these only when a GPU was granted).
+  - **Partition name is not a GPU signal.** GPU nodes here also belong to CPU
+    partitions (`componc_cpu` etc.), so "am I on a gpu partition" is unreliable.
+  - **`/dev/nvidia*` is not a GPU signal either — this was measured, not
+    assumed.** A CPU job that lands on a GPU-capable node *sees* `/dev/nvidia0..N`
+    despite being granted no GPU (`CUDA_VISIBLE_DEVICES` unset). Probing the
+    device files would enable `--nv` for a CPU session and let it grab a GPU
+    allocated to another user — a real multi-tenancy bug. The Slurm variables
+    are what actually track the grant.
+  `--nv` binds only the host driver (`libcuda.so`); the CUDA toolkit is not in
+  the image. Frameworks (`torch`/`tensorflow`) bring their own and load it at
+  runtime, which is why one image serves both CPU and GPU. GPU partitions are
+  account-specific (the shared `gpu` partition denies `shahs3`; `componc_gpu_*`
+  allow it), so they come from `RSTUDIO_QUEUES` config, never hard-coded.
+- **R torch needs a CUDA hint; the driver alone is not enough.** Unlike Python
+  torch (whose pip wheel bundles CUDA), R torch's auto-installer picks CPU vs GPU
+  by looking for a *system* CUDA toolkit — which the image deliberately lacks —
+  so it installs the CPU build even on a GPU node (`cuda_is_available()` FALSE
+  despite `nvidia-smi` working). A GPU session therefore exports `CUDA=<version>`
+  into R so the installer fetches the GPU build. The version is **derived, not
+  hardcoded**: the highest torch-supported build (`RSTUDIO_TORCH_CUDA`, default
+  `12.9 12.8 12.6`) that does not exceed the node's driver ceiling
+  (`nvidia-smi`'s "CUDA Version"), read live per node. It is exported via the
+  `rsession` wrapper (rserver strips the session env, so env vars set on the
+  `singularity exec` line do not reach rsession — same reason `R_LIBS_USER` is
+  passed there). `libtorch` lands in the per-version R library, so it is
+  per-R-minor and ~6 GB each.
 
 ## Images vs libraries
 
