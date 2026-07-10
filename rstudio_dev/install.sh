@@ -130,6 +130,15 @@ while (( $# )); do
     esac
 done
 
+# --link against the throwaway checkout a `curl | bash` run created would leave a
+# dangling symlink once the temp dir is cleaned up. Fail fast, before the plan
+# preview claims it will symlink.
+if (( DO_LINK )) && [[ -n "${RSTUDIO_DEV_BOOTSTRAP_TMP:-}" ]]; then
+    printf '\033[31merror:\033[0m %s\n' \
+      "--link needs a persistent checkout; clone the repo and run ./install.sh --link from it" >&2
+    exit 1
+fi
+
 # Interactive if not --yes and a controlling terminal is reachable. Gate on
 # /dev/tty rather than `-t 0`: under `curl | bash` stdin is the pipe (so `-t 0`
 # is false), but /dev/tty is still the user's terminal -- and every prompt below
@@ -226,11 +235,6 @@ echo
 # --------------------------------------------------------------- app files --
 echo "Application"
 echo "-----------"
-# --link against the throwaway checkout a `curl | bash` run created would leave a
-# dangling symlink once that temp dir is cleaned up. Refuse it with guidance.
-if (( DO_LINK )) && [[ -n "${RSTUDIO_DEV_BOOTSTRAP_TMP:-}" ]]; then
-    die "--link needs a persistent checkout; clone the repo and run ./install.sh --link from it"
-fi
 if [[ "$(readlink -f "$SRC_DIR")" == "$(readlink -f "$APP_DIR" 2>/dev/null)" ]]; then
     info "already installed in place ($APP_DIR)"
 elif (( DO_LINK )); then
