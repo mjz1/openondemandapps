@@ -44,15 +44,18 @@ for architecture, and `sync-images.sh --help` for image management.
   output at all**, and the only symptom is `wait_until_port_used` timing out.
   `script.sh.erb` binds a `logging.conf` with `logger-type=stderr` so errors
   reach the job's `output.log`. Keep it.
-- **GPU passthrough is `--nv`, gated on a runtime device probe.** `script.sh.erb`
-  and `r-wrappers.sh` add `--nv` to `singularity exec` only when `/dev/nvidia*`
-  exists inside the job. Two facts force this design:
+- **GPU passthrough is `--nv`, gated on Slurm's GPU-allocation signal — not a
+  device probe.** `script.sh.erb` and `r-wrappers.sh` add `--nv` to `singularity
+  exec` only when `CUDA_VISIBLE_DEVICES` / `SLURM_JOB_GPUS` is set (Slurm's gres
+  plugin sets these only when a GPU was granted).
   - **Partition name is not a GPU signal.** GPU nodes here also belong to CPU
     partitions (`componc_cpu` etc.), so "am I on a gpu partition" is unreliable.
-  - **`ConstrainDevices=yes` + `task/cgroup`** hides `/dev/nvidia*` from any job
-    that did not request `--gres=gpu`. So the device's *presence in the cgroup*
-    is the authoritative signal, and it is only knowable at runtime on the
-    compute node — which is where both scripts run.
+  - **`/dev/nvidia*` is not a GPU signal either — this was measured, not
+    assumed.** A CPU job that lands on a GPU-capable node *sees* `/dev/nvidia0..N`
+    despite being granted no GPU (`CUDA_VISIBLE_DEVICES` unset). Probing the
+    device files would enable `--nv` for a CPU session and let it grab a GPU
+    allocated to another user — a real multi-tenancy bug. The Slurm variables
+    are what actually track the grant.
   `--nv` binds only the host driver (`libcuda.so`); the CUDA toolkit is not in
   the image. Frameworks (`torch`/`tensorflow`) bring their own and load it at
   runtime, which is why one image serves both CPU and GPU. GPU partitions are

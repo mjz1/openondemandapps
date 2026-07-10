@@ -123,12 +123,14 @@ How it works, and why it is built this way:
   `componc_gpu_batch` / `componc_gpu_int` allow it — so they are configured, not
   hard-coded. Set yours accordingly; see [Reusing this setup](#reusing-this-setup).
 - **`submit.yml.erb` adds `--gres=gpu:N`** only when GPUs > 0.
-- **`--nv` is decided at session start, on the compute node**, by probing for
-  `/dev/nvidia*` — *not* by the partition name. GPU nodes here also sit in CPU
-  partitions, and Slurm's `ConstrainDevices=yes` hides the device from any job
-  that did not request `--gres=gpu`. So the device's presence is the only
-  trustworthy signal, and a GPUs = 0 session never gets `--nv` even if it lands
-  on GPU hardware. The `output.log` records which path was taken.
+- **`--nv` is decided at session start, on the compute node**, from Slurm's
+  GPU-allocation variables (`CUDA_VISIBLE_DEVICES` / `SLURM_JOB_GPUS`) — *not*
+  the partition name, and *not* the presence of `/dev/nvidia*`. Both are
+  unreliable: GPU nodes also sit in CPU partitions, and a CPU job that lands on a
+  GPU node still *sees* `/dev/nvidia*` while being granted no GPU. Only the Slurm
+  variables track the actual grant, so a GPUs = 0 session never gets `--nv` even
+  on GPU hardware — which also stops it from grabbing a GPU allocated to someone
+  else. The `output.log` records which path was taken.
 - **The image ships no CUDA toolkit.** `--nv` binds only the host driver
   (`libcuda.so`); `torch`/`tensorflow` download a CUDA-enabled backend into the
   package library and load it at runtime. This is why a single image serves both

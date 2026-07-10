@@ -127,19 +127,22 @@ echo "Starting up rserver..."
 
 export RSTUDIO_USER="${USER}"
 
-# GPU passthrough. Detect a device at runtime rather than from the partition
-# name: GPU nodes on this cluster also sit in CPU partitions, and Slurm's
-# ConstrainDevices=yes hides /dev/nvidia* from any job that did not request
-# --gres=gpu. So the presence of /dev/nvidia* inside this job is the one
-# reliable signal that a GPU was actually granted. --nv binds only the host
-# driver (libcuda.so); the CUDA toolkit comes from the R/Python package
-# (e.g. torch bundles its own).
+# GPU passthrough. Enable --nv only when Slurm actually GRANTED a GPU, which it
+# signals via CUDA_VISIBLE_DEVICES / SLURM_JOB_GPUS (set by the gres plugin).
+#
+# Do NOT probe /dev/nvidia*: measured on this cluster, a CPU job that lands on a
+# GPU-capable node (GPU nodes are in the CPU partitions too) sees /dev/nvidia*
+# even though it was granted no GPU and CUDA_VISIBLE_DEVICES is unset. Probing
+# devices would then enable --nv for a CPU session and let it grab a GPU
+# allocated to another user. The Slurm allocation variables are the authoritative
+# signal. --nv binds only the host driver (libcuda.so); the CUDA toolkit comes
+# from the R/Python package (e.g. torch bundles its own).
 NV_FLAG=""
-if compgen -G '/dev/nvidia[0-9]*' >/dev/null 2>&1; then
+if [ -n "${CUDA_VISIBLE_DEVICES:-}" ] || [ -n "${SLURM_JOB_GPUS:-}" ] || [ -n "${GPU_DEVICE_ORDINAL:-}" ]; then
   NV_FLAG="--nv"
-  echo "GPU device present -> enabling Singularity --nv"
+  echo "GPU granted (CUDA_VISIBLE_DEVICES='${CUDA_VISIBLE_DEVICES:-}', SLURM_JOB_GPUS='${SLURM_JOB_GPUS:-}') -> enabling Singularity --nv"
 else
-  echo "No GPU device granted to this job -> CPU-only (no --nv)"
+  echo "No GPU granted to this job -> CPU-only (no --nv)"
 fi
 
 # Singularity forwards the host environment into the container, and this host
