@@ -8,7 +8,7 @@
 # under /etc/ood/config/clusters.d/*.yml
 # @example Use the Owens cluster at Ohio Supercomputer Center
 #     cluster: "owens"
-cluster: "juno"
+cluster: "iris"
 
 # Define attribute values that aren't meant to be modified by the user within
 # the Dashboard form
@@ -33,7 +33,7 @@ attributes:
 
   queue:
     label: "Queue"
-    value: "general"
+    value: "cpu"
   num_cores:
     widget: "number_field"
     label: "Number of cores"
@@ -41,11 +41,13 @@ attributes:
     help: "Maximum number of CPU cores is 72"
     min: 1
     step: 1
-  num_mins:
-    value: 1000
-    min: 5
+  num_hours:
+    widget: "number_field"
+    label: "Number of hours"
+    value: 8
+    min: 1
     step: 1
-    help: "Maximum wall time is 1 week"
+    help: "Time in hours"
   memory:
     widget: "number_field"
     label: "Memory"
@@ -53,17 +55,32 @@ attributes:
     min: 8
     step: 1
   rstudio_image:
-    label: RStudio Singularity Image
-    help: Enter a path to a RStudio Server Image
-    value: '/home/zatzmanm/work/images/rstudio/rstudio-latest.sif'
+    widget: "select"
+    options:
+      - [ "4.5.1",  "/home/zatzmanm/work/images/rstudio/rstudio-v4.5.1-2.sif",
+          data-set-r-packages: '4.5']
+      - [ "4.4.1",  "/home/zatzmanm/work/images/rstudio/rstudio-v2.0.sif",
+          data-set-r-packages: '4.4' ]
+      - [ "4.3.2",  "/home/zatzmanm/work/images/rstudio/rstudio-v4.3.2-1.sif",
+          data-set-r-packages: '4.3' ]
+    label: Rstudio image version
+    help: Select an option
   r_packages:
+    widget: "select"
+    options:
+      - [ "4.5",  "/home/zatzmanm/work/R/x86_64-pc-linux-gnu-library/4.5_singularity" ]
+      - [ "4.4",  "/home/zatzmanm/work/R/x86_64-pc-linux-gnu-library/4.4_singularity" ]
+      - [ "4.3",  "/home/zatzmanm/work/R/x86_64-pc-linux-gnu-library/4.3_singularity" ]    
     label: R packages
-    help: Enter a path to installed R packages
-    value: '/juno/work/shah/users/zatzmanm/R/x86_64-pc-linux-gnu-library/4.2_singularity'
-  conda_startup:
-    label: Conda Startup Script
-    help: Path to ''.../miniconda3/etc/profile.d/conda.sh'
-    value: '/home/zatzmanm/work/miniconda3/etc/profile.d/conda.sh'
+    help: Select R version
+  # rstudio_image:
+  #   label: RStudio Singularity Image
+  #   help: Enter a path to a RStudio Server Image
+  #   value: '/home/zatzmanm/work/images/rstudio/rstudio-latest.sif'
+  # r_packages:
+  #   label: R packages
+  #   help: Enter a path to installed R packages
+  #   value: '/home/zatzmanm/work/R/x86_64-pc-linux-gnu-library/4.3_singularity'
 
 # All of the attributes that make up the Dashboard form (in respective order),
 # and made available to the submit configuration file and the template ERB
@@ -76,11 +93,9 @@ attributes:
 #   Dashboard
 form:
   - modules
-  - extra_rstudio_args
   - queue
   - num_cores
-  - num_mins
+  - num_hours
   - memory
   - rstudio_image
   - r_packages
-  - conda_startup

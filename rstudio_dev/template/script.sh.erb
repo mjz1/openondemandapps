@@ -1,9 +1,36 @@
 #!/usr/bin/env bash
+<%-
+  # The package library is a function of the image, not an independent choice:
+  # packages built for one R minor version will not load under another. Deriving
+  # it here removes the old parallel `r_packages` dropdown, which could be set to
+  # a library that did not match -- or, as with R 4.4, did not exist at all.
+  image   = File.realpath(context.rstudio_image)
+  r_minor = File.basename(image)[/(\d+\.\d+)/, 1]
+  raise "cannot determine R version from image #{image}" if r_minor.nil?
+
+  # Same config file the form reads (written by install.sh); env wins if set.
+  rsd_conf = lambda do
+    path = ENV['RSTUDIO_DEV_CONFIG'] || File.join(Dir.home, '.config', 'rstudio_dev', 'config')
+    conf = {}
+    if File.readable?(path)
+      File.readlines(path).each do |line|
+        line = line.strip
+        next if line.empty? || line.start_with?('#')
+        k, v = line.split('=', 2)
+        conf[k.strip] = v.strip if k && v
+      end
+    end
+    conf
+  end.call
+
+  r_libs_root = ENV['R_LIBS_ROOT'] || rsd_conf['R_LIBS_ROOT'] ||
+                "#{Dir.home}/work/R/x86_64-pc-linux-gnu-library"
+  r_libs      = File.join(r_libs_root, "#{r_minor}_singularity")
+-%>
 
 # Load the required environment
 setup_env () {
   module purge
-  module load singularity/3.7.1
 }
 setup_env
 
@@ -11,15 +38,19 @@ setup_env
 # Start RStudio Server
 #
 
-# Export path to library packages
-export R_LIBS_USER="<%= context.r_packages %>"
+# Package library for R <%= r_minor %>, derived from the selected image.
+# R silently ignores a missing R_LIBS_USER, so fail loudly instead.
+export R_LIBS_USER="<%= r_libs %>"
+if [[ ! -d "${R_LIBS_USER}" ]]; then
+  echo "R package library not found: ${R_LIBS_USER}" >&2
+  echo "Create it with: mkdir -p '${R_LIBS_USER}'" >&2
+  exit 1
+fi
 
 # PAM auth helper used by RStudio
 export RSTUDIO_AUTH="${PWD}/bin/auth"
 
-export LSF_BINDIR=/admin/lsfjuno/lsf/10.1/linux3.10-glibc2.17-x86_64/bin
 
-export CONDA_SCRIPT="<%= context.conda_startup %>"
 
 # Generate an `rsession` wrapper script
 export RSESSION_WRAPPER_FILE="${PWD}/rsession.sh"
@@ -28,42 +59,11 @@ umask 077
 sed 's/^ \{2\}//' > "${RSESSION_WRAPPER_FILE}" << EOL
   #!/usr/bin/env bash
 
-  # Export path to server binary
-  # export PATH="/usr/lib/rstudio-server/bin/":${PATH}
-
-  # export CONDA_AUTO_ACTIVATE_BASE=false
-
-
-  # Initialize conda 
-  if [ -z ${CONDA_SCRIPT} ] || [ "$CONDA_SCRIPT" = "" ];
-    then
-      echo "No conda initialized"
-  else
-    echo "Initializing conda script: $CONDA_SCRIPT"
-    { # try
-      . $CONDA_SCRIPT
-    } || { 
-      echo "Conda not initialized properly"
-  }
-  fi
-
-  # Propagate quarto python
-  # export QUARTO_PYTHON=${QUARTO_PYTHON}
-  export RSTUDIO_PANDOC="/usr/local/bin/pandoc"
-
-  # Get BSUB working
-  # source /etc_hpc/profile
-  # source /admin/lsfjuno/lsf/conf/profile.lsf
-  # export LSF_ENVDIR=/admin/lsfjuno/lsf/conf
-  # export LSF_SERVERDIR=/admin/lsfjuno/lsf/10.1/linux3.10-glibc2.17-x86_64/etc
-  # export PATH=$LSF_BINDIR:$PATH
-
+  echo 'slurm:x:300:300::/opt/slurm/slurm:/bin/false' >> /etc/passwd
   # We fix the path and remove all the junk I had
-  export PATH=/usr/lib/rstudio-server/bin/:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH
+  export PATH=/usr/lib/rstudio-server/bin/:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$HOME/.local/host/bin:$PATH
 
-  # Get BSUB working
-  # export PATH=/common/juno/OS7/10.1/linux3.10-glibc2.17-x86_64/bin:$PATH
-
+  export XDG_CACHE_HOME="${HOME}/work/.cache/"
 
   # Log all output from this script
   export RSESSION_LOG_FILE="${PWD}/rsession.log"
@@ -82,7 +82,7 @@ chmod 700 "${RSESSION_WRAPPER_FILE}"
 cd "${HOME}"
 
 # Output debug info
-module list
+# module list
 
 # echo old TMPDIR $TMPDIR
 export TMPDIR=`mktemp -d`
@@ -90,8 +90,36 @@ export TMPDIR=`mktemp -d`
 
 mkdir -p $TMPDIR/{run,var-lib-rstudio-server,local-share-rstudio,usr}
 
-## fix rstudio active session error on start
-# find /home/zatzmanm/work/.rstudio/sessions/active/*/session-persistent-state -type f | xargs sed -i '' -e 's/abend="1"/abend="0"/'
+# RStudio Server 2026.06+ treats an unreadable /etc/rstudio/database.conf as a
+# fatal error; 2025.09 tolerated it. The rstudio-server deb ships that file
+# 0600 root:root, which is fine under Docker (where you are root) but unreadable
+# under Singularity, where you are not. Point rserver at our own copy. Older
+# RStudio accepts the same flag, so this is safe across all images.
+cat > "${TMPDIR}/database.conf" <<'DBCONF'
+provider=sqlite
+directory=/var/lib/rstudio-server
+DBCONF
+chmod 600 "${TMPDIR}/database.conf"
+
+# rocker's install_rstudio.sh sets logger-type=syslog, and there is no syslog in
+# the container -- so rserver startup failures vanish silently and the only
+# symptom is `wait_until_port_used` timing out. Log to stderr so they land in
+# this job's output.log instead.
+cat > "${TMPDIR}/logging.conf" <<'LOGCONF'
+[*]
+log-level=warn
+logger-type=stderr
+LOGCONF
+
+# Clear the "session did not exit cleanly" prompt from prior sessions.
+# The old `find ... -exec sed -i '{}' -e ... {} \;` passed the filename twice and
+# errored when the glob matched nothing; nullglob makes the empty case a no-op.
+RSTUDIO_STATE_DIR="${RSTUDIO_STATE_DIR:-${HOME}/work/.rstudio}"
+shopt -s nullglob
+for state in "${RSTUDIO_STATE_DIR}"/sessions/active/*/session-persistent-state; do
+  sed -i -e 's/abend="1"/abend="0"/' "${state}"
+done
+shopt -u nullglob
 
 set -x
 # Launch the RStudio Server
@@ -99,38 +127,31 @@ echo "Starting up rserver..."
 
 export RSTUDIO_USER="${USER}"
 
-echo $USER
-echo $PASSWORD
-echo $RSTUDIO_USER
-echo $RSTUDIO_PASSWORD
-echo $R_LIBS_USER
-
-# User-installed R packages go into their home directory
-if [ ! -e ${HOME}/.Renviron ]
-then
-  printf '\nNOTE: creating ~/.Renviron file\n\n'
-  echo 'R_LIBS_USER=<%= context.r_packages %>' >> ${HOME}/.Renviron
-fi
-
-# source /etc/profile
-# export LSF_ENVDIR=/admin/lsfjuno/lsf/conf
-# export LSF_SERVERDIR=/admin/lsfjuno/lsf/10.1/linux3.10-glibc2.17-x86_64/etc
-
+# Singularity forwards the host environment into the container, and this host
+# exports SSL_CERT_FILE=/etc/pki/... and SSL_CERT_DIR=/etc/pki/... -- RHEL paths
+# that do not exist inside the Ubuntu image. Anything doing TLS with OpenSSL
+# then fails; Quarto (Deno) dies with "Failed to load platform certificates".
+# Point them at the container's own CA bundle rather than using --cleanenv,
+# which would also strip SLURM_* and the RStudio variables we rely on.
 singularity exec -B "$TMPDIR:/tmp" \
  -B "$TMPDIR/run:/run" \
  -B "$TMPDIR/var-lib-rstudio-server:/var/lib/rstudio-server" \
  -B "$TMPDIR/local-share-rstudio:/home/rstudio/.local/share/rstudio" \
- -B "/work:/work" -B "/res:/res" \
- -B "/juno/work:/juno/work" -B "/juno/res:/juno/res" \
- -B "/admin:/admin" -B "/common:/common" \
- "<%= context.rstudio_image %>" rserver \
+ -B "$TMPDIR/logging.conf:/etc/rstudio/logging.conf" \
+ -B "/data1:/data1" \
+ -B "/run/munge/,/etc/slurm/,/usr/lib64/slurm,/usr/lib64/libmunge.so.2" \
+ -B "${HOME}:${HOME}" \
+ --env SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+ --env SSL_CERT_DIR=/etc/ssl/certs \
+ "<%= image %>" rserver \
+ --database-config-file=/tmp/database.conf \
  --server-user="${RSTUDIO_USER}" \
  --www-port="${port}" \
  --auth-none=0 \
  --auth-pam-require-password-prompt=0 \
  --auth-pam-helper-path="${RSTUDIO_AUTH}" \
  --auth-encrypt-password=0 \
- --auth-timeout-minutes=600 \
+ --auth-timeout-minutes=6000 \
  --rsession-path="${RSESSION_WRAPPER_FILE}"
 
 # note, rserver in the container will start with the user space environment defined on host

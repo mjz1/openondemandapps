@@ -8,7 +8,7 @@
 # under /etc/ood/config/clusters.d/*.yml
 # @example Use the Owens cluster at Ohio Supercomputer Center
 #     cluster: "owens"
-cluster: "juno"
+cluster: "iris"
 
 # Define attribute values that aren't meant to be modified by the user within
 # the Dashboard form
@@ -33,27 +33,36 @@ attributes:
 
   queue:
     label: "Queue"
-    value: "general"
+    value: "componc_cpu"
   num_cores:
     widget: "number_field"
     label: "Number of cores"
-    value: 2
+    value: 1
     help: "Maximum number of CPU cores is 72"
-    min: 2
+    min: 1
     step: 1
   memory:
     value: 8
     step: 4
-    help: "Requested memory per core"
+    help: "Requested memory"
   num_mins:
     value: 60
     min: 5
     step: 1
     help: "Maximum wall time is 1 week"
+  num_gpus:
+    value: 0
+    min: 0
+    step: 1
+    help: "Set to 0 if no gpu needed"
   jupyter_binary:
     label: Jupyter Binary
     help: Enter a path to the jupyter binary
-    value: ''
+    value: 'jupyter-lab'
+  conda_env:
+    label: Conda Environment Name
+    help: Enter the name of the conda environment to use to launch jupyter
+    value: 'jupyterlab'
   notebook_directory:
     label: Notebooks directory
     help: Enter a path to the notebooks
@@ -75,7 +84,8 @@ form:
   - queue
   - num_cores
   - num_mins
+  - num_gpus
   - memory
   - jupyter_binary
+  - conda_env
   - notebook_directory
-
