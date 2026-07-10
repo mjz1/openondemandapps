@@ -50,8 +50,20 @@
   # fresh install behaves exactly as before. GPU partitions are site-specific
   # (e.g. this cluster denies `shahs3` on the shared `gpu` partition but allows
   # `componc_gpu_batch`), which is precisely why they come from config, not code.
-  queues = setting.call('RSTUDIO_QUEUES', queue).split(',').map(&:strip).reject(&:empty?)
-  queues = [queue] if queues.empty?
+  #
+  # Each entry is `partition` or `partition|Human readable label`. install.sh
+  # generates the labels from Slurm (GPU types, max wall time), so the dropdown
+  # shows e.g. "componc_gpu_int — GPU: H100/H200 · <=1d · interactive". The
+  # submitted value is always the bare partition (before the `|`).
+  queue_opts = setting.call('RSTUDIO_QUEUES', queue)
+                      .split(',').map(&:strip).reject(&:empty?)
+                      .map do |entry|
+    value, label = entry.split('|', 2)
+    value = value.to_s.strip
+    label = (label && !label.strip.empty?) ? label.strip : value
+    [label, value]
+  end
+  queue_opts = [[queue, queue]] if queue_opts.empty?
 
   info = {}
   manifest = File.join(image_dir, 'images.json')
@@ -93,8 +105,8 @@ attributes:
     value: "<%= queue %>"
     help: "Pick a GPU partition (and set GPUs > 0) to get a GPU."
     options:
-<%- queues.each do |q| -%>
-      - [ "<%= q %>", "<%= q %>" ]
+<%- queue_opts.each do |label, value| -%>
+      - [ "<%= label %>", "<%= value %>" ]
 <%- end -%>
   num_cores:
     widget: "number_field"

@@ -80,6 +80,58 @@ warn() { printf '\033[33mwarn:\033[0m %s\n' "$*" >&2; }
 info() { printf '  %s\n' "$*"; }
 run()  { if (( DRY_RUN )); then printf '  [dry-run] %s\n' "$*"; else eval "$@"; fi; }
 
+# Humanize a Slurm time limit: 7-00:00:00 -> 7d, 1-00:00:00 -> 1d, 2:00:00 -> 2h.
+_humanize_time() {
+    case "$1" in
+        *-*)   printf '%sd' "${1%%-*}" ;;
+        *:*:*) printf '%sh' "${1%%:*}" ;;
+        *)     printf '%s' "$1" ;;
+    esac
+}
+
+# Build a human label for a partition from Slurm: GPU types and max wall time,
+# plus a use-case hint from the name. Best-effort -- if a queue already carries a
+# `|label`, or Slurm is unreachable, the bare name is used unchanged. This is why
+# the labels live in config (generated once here, on a login node where scontrol
+# and sinfo exist) rather than in the form's ERB, which renders inside the PUN.
+_queue_label() {
+    local q="$1" p mt gpus gres use
+    case "$q" in *"|"*) printf '%s' "$q"; return ;; esac   # already labelled
+    p="$q"
+    command -v scontrol >/dev/null 2>&1 || { printf '%s' "$p"; return; }
+    mt="$(scontrol show partition "$p" 2>/dev/null | grep -oE 'MaxTime=[^ ]+' | cut -d= -f2)"
+    [ -n "$mt" ] || { printf '%s' "$p"; return; }           # unknown partition
+    if [[ "$p" == *gpu* ]]; then
+        gpus="$(sinfo -h -p "$p" -o '%G' 2>/dev/null | tr ',' '\n' \
+                | grep -oE 'gpu:[a-z0-9_]+' | sed 's/gpu://; s/nvidia_h200_nvl/h200/; s/nvidia_//' \
+                | tr '[:lower:]' '[:upper:]' | sort -u | paste -sd/ -)"
+        gres="GPU ${gpus:-?}"
+    else
+        gres="CPU"
+    fi
+    case "$p" in
+        *_int)    use=' · interactive' ;;
+        *_batch)  use=' · batch' ;;
+        *_preem*) use=' · preemptible' ;;
+        *)        use='' ;;
+    esac
+    # Intra-label separators must NOT be commas: commas delimit entries in
+    # RSTUDIO_QUEUES, so a comma in a label would split it in the form. Use " · ".
+    printf '%s|%s — %s · <=%s%s' "$p" "$p" "$gres" "$(_humanize_time "$mt")" "$use"
+}
+
+# Expand a comma-separated queue list into `partition|label` entries.
+_enrich_queues() {
+    local list="$1" out="" q
+    local IFS=','
+    for q in $list; do
+        q="${q#"${q%%[![:space:]]*}"}"; q="${q%"${q##*[![:space:]]}"}"  # trim
+        [ -z "$q" ] && continue
+        out+="${out:+,}$(_queue_label "$q")"
+    done
+    printf '%s' "$out"
+}
+
 usage() {
     cat <<EOF
 Usage: ./install.sh [options]
@@ -201,11 +253,19 @@ read -r -a VERSIONS <<<"$R_VERSIONS"
 echo "Plan"
 echo "----"
 info "images         $IMAGE_DIR  (${#FOUND[@]} found: ${FOUND[*]:-none})"
+# Enrich the queue list with Slurm-derived labels (GPU types, wall-time limits)
+# now, on this login node. The form just displays them.
+QUEUES_OUT="$(_enrich_queues "${QUEUES:-$QUEUE}")"
+
 info "R libraries    $R_LIBS_ROOT"
 info "R versions     ${VERSIONS[*]}"
 info "app            $APP_DIR  $( ((DO_LINK)) && echo '(symlink)' || echo '(copy)')"
 info "config         $CONFIG_PATH"
 info "cluster/queue  $CLUSTER / $QUEUE"
+if [ -n "$QUEUES_OUT" ]; then
+    info "queues:"
+    printf '%s\n' "$QUEUES_OUT" | tr ',' '\n' | sed 's/^/                 /'
+fi
 echo
 
 if interactive; then
@@ -261,7 +321,7 @@ R_LIBS_ROOT=$R_LIBS_ROOT
 RSTUDIO_VERSIONS=${VERSIONS[*]}
 RSTUDIO_CLUSTER=$CLUSTER
 RSTUDIO_QUEUE=$QUEUE
-RSTUDIO_QUEUES=$QUEUES
+RSTUDIO_QUEUES=$QUEUES_OUT
 RSTUDIO_SYNC_PARTITION=$SYNC_PARTITION
 EOF
 else
@@ -291,7 +351,7 @@ RSTUDIO_QUEUE=$QUEUE
 # ones (e.g. componc_cpu,componc_gpu_batch,componc_gpu_int). GPU partitions are
 # account-specific, so set them to what your account may submit to. Empty =
 # offer only RSTUDIO_QUEUE.
-RSTUDIO_QUEUES=$QUEUES
+RSTUDIO_QUEUES=$QUEUES_OUT
 
 # Partition that sync-images.sh submits image pulls to. The pull is ~4 GB plus a
 # squashfs build, so it does not belong on a login node.

@@ -122,6 +122,13 @@ How it works, and why it is built this way:
   on this cluster the shared `gpu` partition *denies* the `shahs3` account, while
   `componc_gpu_batch` / `componc_gpu_int` allow it — so they are configured, not
   hard-coded. Set yours accordingly; see [Reusing this setup](#reusing-this-setup).
+- **Each option is labelled with its GPU type and time limit**, so you know what
+  you are picking — e.g. `componc_gpu_int — GPU H100/H200 · <=1d · interactive`.
+  `install.sh` generates these from Slurm (`scontrol`/`sinfo`) at install time,
+  on a login node, and stores them in `RSTUDIO_QUEUES` as `partition|label`
+  entries; the form just displays them and submits the bare partition. Labels go
+  stale only if a partition's limits change — re-run `install.sh` to refresh.
+  You never type the label: `--queues` takes bare partition names.
 - **`submit.yml.erb` adds `--gres=gpu:N`** only when GPUs > 0.
 - **`--nv` is decided at session start, on the compute node**, from Slurm's
   GPU-allocation variables (`CUDA_VISIBLE_DEVICES` / `SLURM_JOB_GPUS`) — *not*
@@ -231,7 +238,7 @@ RSTUDIO_IMAGE_DIR=/tmp/testimages sync-images.sh
 | `RSTUDIO_VERSIONS` | R minor versions to track when syncing | per-user |
 | `RSTUDIO_CLUSTER` | OnDemand cluster id (`/etc/ood/config/clusters.d`) | site |
 | `RSTUDIO_QUEUE` | default Slurm partition, pre-selected in the dropdown | site |
-| `RSTUDIO_QUEUES` | comma-separated partitions offered in the Queue dropdown, incl. GPU ones; falls back to `RSTUDIO_QUEUE` if unset | site |
+| `RSTUDIO_QUEUES` | comma-separated partitions in the Queue dropdown, incl. GPU ones; each entry is `partition` or `partition\|label` (install.sh auto-labels with GPU type + time limit); falls back to `RSTUDIO_QUEUE` if unset | site |
 | `RSTUDIO_SYNC_PARTITION` | partition `sync-images.sh` submits pulls to | site |
 
 `RSTUDIO_STATE_DIR` (default `~/work/.rstudio`) holds RStudio session state and
