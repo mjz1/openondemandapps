@@ -127,13 +127,28 @@ echo "Starting up rserver..."
 
 export RSTUDIO_USER="${USER}"
 
+# GPU passthrough. Detect a device at runtime rather than from the partition
+# name: GPU nodes on this cluster also sit in CPU partitions, and Slurm's
+# ConstrainDevices=yes hides /dev/nvidia* from any job that did not request
+# --gres=gpu. So the presence of /dev/nvidia* inside this job is the one
+# reliable signal that a GPU was actually granted. --nv binds only the host
+# driver (libcuda.so); the CUDA toolkit comes from the R/Python package
+# (e.g. torch bundles its own).
+NV_FLAG=""
+if compgen -G '/dev/nvidia[0-9]*' >/dev/null 2>&1; then
+  NV_FLAG="--nv"
+  echo "GPU device present -> enabling Singularity --nv"
+else
+  echo "No GPU device granted to this job -> CPU-only (no --nv)"
+fi
+
 # Singularity forwards the host environment into the container, and this host
 # exports SSL_CERT_FILE=/etc/pki/... and SSL_CERT_DIR=/etc/pki/... -- RHEL paths
 # that do not exist inside the Ubuntu image. Anything doing TLS with OpenSSL
 # then fails; Quarto (Deno) dies with "Failed to load platform certificates".
 # Point them at the container's own CA bundle rather than using --cleanenv,
 # which would also strip SLURM_* and the RStudio variables we rely on.
-singularity exec -B "$TMPDIR:/tmp" \
+singularity exec ${NV_FLAG} -B "$TMPDIR:/tmp" \
  -B "$TMPDIR/run:/run" \
  -B "$TMPDIR/var-lib-rstudio-server:/var/lib/rstudio-server" \
  -B "$TMPDIR/local-share-rstudio:/home/rstudio/.local/share/rstudio" \

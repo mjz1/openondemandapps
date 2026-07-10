@@ -44,8 +44,20 @@ for architecture, and `sync-images.sh --help` for image management.
   output at all**, and the only symptom is `wait_until_port_used` timing out.
   `script.sh.erb` binds a `logging.conf` with `logger-type=stderr` so errors
   reach the job's `output.log`. Keep it.
-- `--nv` is required for GPU device/driver bind-mounts. Without it a probe for
-  `nvidia-smi` sees nothing even on a GPU node.
+- **GPU passthrough is `--nv`, gated on a runtime device probe.** `script.sh.erb`
+  and `r-wrappers.sh` add `--nv` to `singularity exec` only when `/dev/nvidia*`
+  exists inside the job. Two facts force this design:
+  - **Partition name is not a GPU signal.** GPU nodes here also belong to CPU
+    partitions (`componc_cpu` etc.), so "am I on a gpu partition" is unreliable.
+  - **`ConstrainDevices=yes` + `task/cgroup`** hides `/dev/nvidia*` from any job
+    that did not request `--gres=gpu`. So the device's *presence in the cgroup*
+    is the authoritative signal, and it is only knowable at runtime on the
+    compute node — which is where both scripts run.
+  `--nv` binds only the host driver (`libcuda.so`); the CUDA toolkit is not in
+  the image. Frameworks (`torch`/`tensorflow`) bring their own and load it at
+  runtime, which is why one image serves both CPU and GPU. GPU partitions are
+  account-specific (the shared `gpu` partition denies `shahs3`; `componc_gpu_*`
+  allow it), so they come from `RSTUDIO_QUEUES` config, never hard-coded.
 
 ## Images vs libraries
 

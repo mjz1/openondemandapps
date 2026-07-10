@@ -86,6 +86,18 @@ _r_libs_of() {
 _r_exec() {   # _r_exec <sif> <libs> <cmd> [args...]
     local sif="$1" libs="$2"; shift 2
     module purge
+
+    # GPU passthrough. Detect a device rather than trust the partition: Slurm's
+    # ConstrainDevices=yes hides /dev/nvidia* unless the job requested
+    # --gres=gpu, so their presence means a GPU was actually granted (e.g. inside
+    # `salloc --gres=gpu:1`). --nv binds only the host driver; torch and friends
+    # bring their own CUDA toolkit.
+    local nv=""
+    if compgen -G '/dev/nvidia[0-9]*' >/dev/null 2>&1; then
+        nv="--nv"
+        echo "GPU device present -> --nv" >&2
+    fi
+
     # This host exports SSL_CERT_FILE/SSL_CERT_DIR pointing at /etc/pki (RHEL),
     # and Singularity forwards them into the Ubuntu container where those paths
     # do not exist. OpenSSL-based TLS then fails -- Quarto (Deno) reports
@@ -94,7 +106,7 @@ _r_exec() {   # _r_exec <sif> <libs> <cmd> [args...]
     SINGULARITYENV_R_LIBS_USER="$libs" \
     SINGULARITYENV_SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
     SINGULARITYENV_SSL_CERT_DIR=/etc/ssl/certs \
-    singularity exec \
+    singularity exec ${nv} \
         -B "/data1:/data1" \
         -B "/run/munge/,/etc/slurm/,/usr/lib64/slurm,/usr/lib64/libmunge.so.2" \
         -B "$HOME:$HOME" \

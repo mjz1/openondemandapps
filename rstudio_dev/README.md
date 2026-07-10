@@ -103,6 +103,45 @@ inert: OnDemand reads `form.yml.erb`. If your OnDemand is too old to render
 `form.yml.erb`, the app will fail visibly — restore with
 `mv form.yml.bak form.yml`.
 
+## GPU sessions
+
+To use a GPU:
+
+1. Pick a **GPU-capable partition** in the Queue dropdown.
+2. Set **Number of GPUs** > 0.
+3. In the session, install a framework that uses the GPU — e.g. `torch`:
+   ```r
+   install.packages("torch"); library(torch)
+   cuda_is_available()   # TRUE on a GPU node
+   ```
+
+How it works, and why it is built this way:
+
+- **The Queue dropdown is populated from `RSTUDIO_QUEUES`** (comma-separated, set
+  by `install.sh`/config). GPU partitions are **site- and account-specific** —
+  on this cluster the shared `gpu` partition *denies* the `shahs3` account, while
+  `componc_gpu_batch` / `componc_gpu_int` allow it — so they are configured, not
+  hard-coded. Set yours accordingly; see [Reusing this setup](#reusing-this-setup).
+- **`submit.yml.erb` adds `--gres=gpu:N`** only when GPUs > 0.
+- **`--nv` is decided at session start, on the compute node**, by probing for
+  `/dev/nvidia*` — *not* by the partition name. GPU nodes here also sit in CPU
+  partitions, and Slurm's `ConstrainDevices=yes` hides the device from any job
+  that did not request `--gres=gpu`. So the device's presence is the only
+  trustworthy signal, and a GPUs = 0 session never gets `--nv` even if it lands
+  on GPU hardware. The `output.log` records which path was taken.
+- **The image ships no CUDA toolkit.** `--nv` binds only the host driver
+  (`libcuda.so`); `torch`/`tensorflow` download a CUDA-enabled backend into the
+  package library and load it at runtime. This is why a single image serves both
+  CPU and GPU sessions with no `-cuda` variant. Compiling a package with `nvcc`
+  against *system* CUDA is a separate, future case (upstream issue
+  [rstudio-img#14](https://github.com/mjz1/rstudio-img/issues/14)).
+
+The same probe is in `r-wrappers.sh`, so `R_`/`Rscript_`/`bash_` also get the GPU
+when run inside a GPU allocation (e.g. `salloc --partition=componc_gpu_int
+--gres=gpu:1`).
+
+Cluster reference: <https://github.mskcc.org/HPC/userdocs>.
+
 ## Shell wrappers
 
 `r-wrappers.sh` provides `R_`, `Rscript_`, `bash_`, and `sync_images` for using
@@ -128,26 +167,45 @@ fallback to a different R's library.
 
 ## Reusing this setup
 
+Install straight from the internet — no checkout needed:
+
 ```bash
-git clone git@github.com:mjz1/openondemandapps.git
-cd openondemandapps/rstudio_dev
-./install.sh
+curl -fsSL https://raw.githubusercontent.com/mjz1/openondemandapps/master/rstudio_dev/install.sh | bash
+```
+
+That runs interactively (it reads your answers from the terminal even though the
+script arrives over the pipe). To skip the prompts and pass options, add
+`bash -s --`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mjz1/openondemandapps/master/rstudio_dev/install.sh \
+  | bash -s -- --yes \
+      --image-dir /home/zatzmanm/work/images/rstudio \
+      --queue componc_cpu \
+      --queues componc_cpu,componc_gpu_batch,componc_gpu_int
 ```
 
 `install.sh` creates your R package libraries, installs the app under
-`~/ondemand/dev/`, writes a config file, and offers to source the shell wrappers
-from your `~/.bashrc`. It prompts for anything it needs and every answer has a
-sensible default. `--dry-run` shows what it would do without touching anything.
+`~/ondemand/dev/`, writes `~/.config/rstudio_dev/config`, and offers to source
+the shell wrappers from your `~/.bashrc`. Every answer has a sensible default;
+`--dry-run` shows what it would do without touching anything.
+
+**What it does not do**, because it can't: sync the ~16 GB of images (run
+`sync-images.sh --sync` after), populate your R libraries (they start empty), or
+know your account's GPU partitions (pass them via `--queues`). It installs the
+app and writes config — the fast part — and prints the follow-up steps.
+
+Prefer a checkout (for development, or `--link`):
 
 ```bash
-./install.sh --dry-run                            # preview
-./install.sh --yes                                # accept all defaults
-./install.sh --r-libs-root ~/Rlibs \
-             --image-dir /shared/images/rstudio \
-             --cluster iris --queue componc_cpu
-./install.sh --link                               # symlink the app instead of copying
-./install.sh --help
+git clone https://github.com/mjz1/openondemandapps.git
+cd openondemandapps/rstudio_dev
+./install.sh                                      # interactive
+./install.sh --link                               # symlink instead of copy (needs a checkout)
+./install.sh --help                               # all options
 ```
+
+Both paths run the same `install.sh`; the one-liner just fetches the repo first.
 
 ### Configuration
 
@@ -170,7 +228,8 @@ RSTUDIO_IMAGE_DIR=/tmp/testimages sync-images.sh
 | `R_LIBS_ROOT` | root of your R package libraries | **per-user** |
 | `RSTUDIO_VERSIONS` | R minor versions to track when syncing | per-user |
 | `RSTUDIO_CLUSTER` | OnDemand cluster id (`/etc/ood/config/clusters.d`) | site |
-| `RSTUDIO_QUEUE` | default Slurm partition for sessions | site |
+| `RSTUDIO_QUEUE` | default Slurm partition, pre-selected in the dropdown | site |
+| `RSTUDIO_QUEUES` | comma-separated partitions offered in the Queue dropdown, incl. GPU ones; falls back to `RSTUDIO_QUEUE` if unset | site |
 | `RSTUDIO_SYNC_PARTITION` | partition `sync-images.sh` submits pulls to | site |
 
 `RSTUDIO_STATE_DIR` (default `~/work/.rstudio`) holds RStudio session state and
