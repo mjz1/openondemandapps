@@ -61,6 +61,19 @@ for architecture, and `sync-images.sh --help` for image management.
   runtime, which is why one image serves both CPU and GPU. GPU partitions are
   account-specific (the shared `gpu` partition denies `shahs3`; `componc_gpu_*`
   allow it), so they come from `RSTUDIO_QUEUES` config, never hard-coded.
+- **R torch needs a CUDA hint; the driver alone is not enough.** Unlike Python
+  torch (whose pip wheel bundles CUDA), R torch's auto-installer picks CPU vs GPU
+  by looking for a *system* CUDA toolkit — which the image deliberately lacks —
+  so it installs the CPU build even on a GPU node (`cuda_is_available()` FALSE
+  despite `nvidia-smi` working). A GPU session therefore exports `CUDA=<version>`
+  into R so the installer fetches the GPU build. The version is **derived, not
+  hardcoded**: the highest torch-supported build (`RSTUDIO_TORCH_CUDA`, default
+  `12.9 12.8 12.6`) that does not exceed the node's driver ceiling
+  (`nvidia-smi`'s "CUDA Version"), read live per node. It is exported via the
+  `rsession` wrapper (rserver strips the session env, so env vars set on the
+  `singularity exec` line do not reach rsession — same reason `R_LIBS_USER` is
+  passed there). `libtorch` lands in the per-version R library, so it is
+  per-R-minor and ~6 GB each.
 
 ## Images vs libraries
 

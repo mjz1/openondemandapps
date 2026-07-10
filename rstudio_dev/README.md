@@ -115,6 +115,23 @@ To use a GPU:
    cuda_is_available()   # TRUE on a GPU node
    ```
 
+**R torch and the CUDA build.** The image ships no CUDA toolkit (by design — see
+below), and R torch's auto-installer decides CPU vs GPU by looking for a *system*
+CUDA toolkit. Left alone it would install the **CPU** build even on a GPU node.
+So a GPU session exports `CUDA=<version>` into R, and torch's installer fetches
+the matching GPU `libtorch` instead (only the driver is needed at runtime; the
+build bundles the toolkit). The version is **not hardcoded** — it is the highest
+torch-supported build that does not exceed the node's driver ceiling
+(`nvidia-smi`'s "CUDA Version"), chosen live per node, so it adapts to per-node
+drivers and future upgrades. Override the supported list with `RSTUDIO_TORCH_CUDA`
+(space-separated, highest first) if torch adds or drops a `cuXXX` build.
+
+`libtorch` installs into your per-version R library
+(`R_LIBS_ROOT/<ver>_singularity/torch/lib/`, on `/data1`, ~6 GB extracted), so it
+persists across sessions but is **per R minor version** — install it again under
+each R you use with a GPU. If you already installed the CPU build, force a
+one-time re-download: `torch::install_torch(reinstall = TRUE)` then restart R.
+
 How it works, and why it is built this way:
 
 - **The Queue dropdown is populated from `RSTUDIO_QUEUES`** (comma-separated, set
@@ -240,6 +257,7 @@ RSTUDIO_IMAGE_DIR=/tmp/testimages sync-images.sh
 | `RSTUDIO_QUEUE` | default Slurm partition, pre-selected in the dropdown | site |
 | `RSTUDIO_QUEUES` | comma-separated partitions in the Queue dropdown, incl. GPU ones; each entry is `partition` or `partition\|label` (install.sh auto-labels with GPU type + time limit); falls back to `RSTUDIO_QUEUE` if unset | site |
 | `RSTUDIO_SYNC_PARTITION` | partition `sync-images.sh` submits pulls to | site |
+| `RSTUDIO_TORCH_CUDA` | space-separated R-torch CUDA builds, highest first (default `12.9 12.8 12.6`); the session picks the highest that fits the node driver | site |
 
 `RSTUDIO_STATE_DIR` (default `~/work/.rstudio`) holds RStudio session state and
 is read from the environment only.
