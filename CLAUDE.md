@@ -21,7 +21,13 @@ for architecture, and `sync-images.sh --help` for image management.
   Environment still wins when set, for one-off overrides.
 - **No cron.** `scrontab` is disabled cluster-wide and login-node `crontab` is
   blocked by PAM. Anything recurring must be run by hand or by a
-  self-resubmitting Slurm job.
+  self-resubmitting Slurm job. The image sync uses the latter:
+  `rstudio_dev/sync-images.sbatch` is a dual-mode script — run as a plain script
+  it submits itself (login-node safe, submit only); as a Slurm job it runs
+  `sync-images.sh --sync --local`, emails a summary (`RSTUDIO_SYNC_EMAIL`), and
+  resubmits itself for the 2nd of next month. Bootstrap once with
+  `RSTUDIO_SYNC_EMAIL=… bash rstudio_dev/sync-images.sbatch`; the monthly email
+  is the heartbeat.
 - Login nodes must not run compute. `sync-images.sh` splits this deliberately:
   the digest check is three HTTP HEAD requests and runs anywhere; the ~4 GB pull
   plus squashfs conversion is submitted with `sbatch`. If `$SLURM_JOB_ID` is
