@@ -103,6 +103,47 @@ inert: OnDemand reads `form.yml.erb`. If your OnDemand is too old to render
 `form.yml.erb`, the app will fail visibly — restore with
 `mv form.yml.bak form.yml`.
 
+## Multiple concurrent sessions
+
+You can run several RStudio sessions at once — one per project, say — and switch
+between them instantly instead of reloading. Each session is an independent
+`rserver` on its own node, so the only thing that used to make concurrent
+sessions collide was **shared RStudio state in `$HOME`** (`~/.local/share/rstudio`,
+the cache, and an abend-reset loop that rewrote *every* running session's state).
+
+Sessions are now isolated by a **named slot**:
+
+- The launch form has a **Session** dropdown listing your existing slots (newest
+  first, with a "last used" hint) — pick one to resume its state — plus a **New
+  session name** field to start a fresh named slot.
+- Each slot gets its own `XDG_DATA_HOME` under
+  `~/work/.rstudio-sessions/<slot>/data`, so concurrent sessions never touch each
+  other's open documents, console history, or session registry. Slots live under
+  `~/work` (a symlink to `/data1`), **not your space-limited `$HOME`**.
+- **The cache and preferences stay shared.** `XDG_CACHE_HOME` (`~/work/.cache`)
+  is deliberately *not* per-slot — renv keeps its package library there
+  (`$XDG_CACHE_HOME/R/renv`), so isolating it would move every project's library
+  out from under `.libPaths()`. `XDG_CONFIG_HOME` (`~/.config`) is shared too, so
+  themes/keybindings/settings and your R package library are consistent across
+  sessions.
+- Slot state **persists**, so a slot resumes where you left it. The Slurm job is
+  named `rstudio-<slot>` so concurrent sessions are distinguishable in `squeue`.
+- **Note:** packages that cache *data* under `XDG_DATA_HOME` (e.g. `SeuratData`)
+  become per-slot, so you'd install those datasets once per slot.
+
+Reconnecting to a session that is still **running** is done from OnDemand's *My
+Interactive Sessions* page (as always); the form's Session dropdown is for
+choosing which slot to **launch or resume**.
+
+Caveats:
+- **Do not open the same project in two slots at once** — RStudio locks a
+  project's `.Rproj.user`/`.RData`; one project per slot is the safe pattern
+  (and the point).
+- Installing packages from two sessions simultaneously can occasionally race on
+  the shared library directory.
+- Each session is a separate Slurm allocation, so N sessions use N jobs' worth of
+  cores/memory/GPU against your limits.
+
 ## GPU sessions
 
 To use a GPU:
